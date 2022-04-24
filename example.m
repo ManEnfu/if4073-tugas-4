@@ -1,8 +1,8 @@
-I = rgb2gray(imread("images/platnomor1.jpg"));
+I = rgb2gray(imread("images/platnomor9.jpg"));
 J = rgb2gray(imread("images/template.png"));
 
-K = getCharElement(I, 5000);
-T = getCharElement(J, 5);
+K = getCharElement(I, 9);
+T = getCharElement(J, 36);
 templatestr = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 reg = matchCharElement(K,T,templatestr)

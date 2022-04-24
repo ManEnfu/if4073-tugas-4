@@ -1,12 +1,35 @@
-function K = getCharElement(I, sizeThreshold)
+function K = getCharElement(I, maxnchar)
     % segmentation
     J = im2bw(I, graythresh(I));
+    J = imopen(J, strel('disk', 2));
     J = imclearborder(J,8);
-    J = bwareaopen(J, sizeThreshold);
-    % J = imopen(J, strel('disk', brushThreshold));
+    J = bwareaopen(J, 100);
+    %imshow(J);
     
+    L = J;
+    maxsegment = 0;
+    segmentsum = 0;
+    segmentarea = 0;
+    for i = 1: maxnchar
+        newL = bwareafilt(J,i);
+        newsegmentsum = bwarea(newL);
+        newsegmentarea = newsegmentsum-segmentsum;
+        %newsegmentarea
+        %maxsegment
+        if newsegmentarea < 0.3 * maxsegment
+            break;
+        end
+        segmentarea = newsegmentarea;
+        if segmentarea > maxsegment
+            maxsegment = segmentarea;
+        end
+        L = newL;
+        segmentsum = newsegmentsum;
+    end
+
+    %imshow(L);
     % crop row
-    rowBlocks = bwareafilt(max(J,[],2),1);
+    rowBlocks = bwareafilt(max(L,[],2),1);
     toprow = 0; 
     botrow = 0;
     for y = 1: size(rowBlocks, 1)
@@ -20,10 +43,10 @@ function K = getCharElement(I, sizeThreshold)
     if botrow == 0
         botrow = size(rowBlocks);
     end
-    J = J(toprow:botrow,:);
+    L = L(toprow:botrow,:);
 
     % crop individual character
-    colBlocks = max(J,[],1);
+    colBlocks = max(L,[],1);
     leftcol = 0;
     % rightcol = 0;
     K = logical([]);
@@ -32,7 +55,7 @@ function K = getCharElement(I, sizeThreshold)
             leftcol = x;
         elseif leftcol ~= 0 && (~colBlocks(x) || x == size(colBlocks, 2)) 
             rightcol = x-1;
-            C = J(:,leftcol:rightcol);
+            C = L(:,leftcol:rightcol);
             toprow = 0; 
             botrow = 0;
             rowBlocks = max(C,[],2);
