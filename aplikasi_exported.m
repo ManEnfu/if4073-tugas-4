@@ -4,7 +4,11 @@ classdef aplikasi_exported < matlab.apps.AppBase
     properties (Access = public)
         UIFigure                  matlab.ui.Figure
         GridLayout                matlab.ui.container.GridLayout
-        OriginalImageRotatedImageCroppedImageandFinalImagePanel  matlab.ui.container.Panel
+        InputPanel                matlab.ui.container.Panel
+        FixImageRotationCheckBox  matlab.ui.control.CheckBox
+        CropImageCheckBox         matlab.ui.control.CheckBox
+        LoadImageButton           matlab.ui.control.Button
+        OriginalImageFilteredImageRotatedImageandCroppedImagePanel  matlab.ui.container.Panel
         GridLayout2               matlab.ui.container.GridLayout
         ImageCropped              matlab.ui.control.Image
         ImageRotated              matlab.ui.control.Image
@@ -12,7 +16,6 @@ classdef aplikasi_exported < matlab.apps.AppBase
         ImageOriginal             matlab.ui.control.Image
         DetectedPlateNumberPanel  matlab.ui.container.Panel
         LabelPlateNumber          matlab.ui.control.Label
-        LoadImageButton           matlab.ui.control.Button
     end
 
     
@@ -27,25 +30,69 @@ classdef aplikasi_exported < matlab.apps.AppBase
     
     methods (Access = private)
 
-        function Process(app)
-            app.FilteredImage = rgb2gray(app.OriginalImage);
+        function Process(app, aImage)
+            app.FilteredImage = rgb2gray(aImage);
             app.ImageFiltered.ImageSource = cat(3, app.FilteredImage, app.FilteredImage, app.FilteredImage);
 
-            app.RotatedImage = app.FilteredImage;
+            if app.FixImageRotationCheckBox.Value
+                app.RotatedImage = app.FixRotation(app.FilteredImage);
+            else
+                app.RotatedImage = app.FilteredImage;
+            end
             app.ImageRotated.ImageSource = cat(3, app.RotatedImage, app.RotatedImage, app.RotatedImage);
 
-            app.CroppedImage = app.RotatedImage;
+            if app.CropImageCheckBox.Value
+                app.CroppedImage = app.Crop(app.RotatedImage);
+            else
+                app.CroppedImage = app.RotatedImage;
+            end
             app.ImageCropped.ImageSource = cat(3, app.CroppedImage, app.CroppedImage, app.CroppedImage);
+
+            app.LabelPlateNumber.Text = app.Detect(app.CroppedImage);
         end
         
-        function Detect(app)
-            vPlateImage = app.getCharElement(app.CroppedImage, 9);
-            vPlateNumber = app.matchCharElement(vPlateImage, app.TemplateImg, app.TemplateStr);
+        function result = Detect(app, aImage)
+            vPlateImage = app.GetCharElement(aImage, 9);
+            vPlateNumber = app.MatchCharElement(vPlateImage, app.TemplateImg, app.TemplateStr);
 
-            app.LabelPlateNumber.Text = vPlateNumber;
+            result = vPlateNumber;
         end
 
-        function res = matchTemplate(~, I, T)
+        function result = Crop(~, aImage)
+            vImage = edge(aImage, 'canny');
+            
+            vRegionProp = regionprops(vImage, 'BoundingBox', 'Area', 'Image');
+            vArea = vRegionProp.Area;
+            vCount = numel(vRegionProp);
+            vMaxArea = vArea;
+            vBoundingBox = vRegionProp.BoundingBox;
+            for i=1:vCount
+               if vMaxArea < vRegionProp(i).Area
+                   vMaxArea = vRegionProp(i).Area;
+                   vBoundingBox = vRegionProp(i).BoundingBox;
+               end
+            end   
+            
+            result = imcrop(aImage, vBoundingBox);
+        end
+
+        function result = FixRotation(~, aImage)
+            binaryImage = edge(aImage,'canny');
+            binaryImage = bwmorph(binaryImage,'thicken');
+            theta = -90:89;
+            [R,~] = radon(binaryImage,theta);
+            [R1,~] = max(R); 
+            theta_max = 90;
+            while(theta_max > 50 || theta_max<-50)
+                [~,theta_max] = max(R1);
+                R1(theta_max) = 0;
+                theta_max = theta_max - 91;
+            end
+            result = imrotate(aImage,-theta_max);
+            result(result == 0) = 255;
+        end
+
+        function res = MatchTemplate(~, I, T)
             maxMatch = 0;
             res = 0;
             for z = 1: size(T, 3)
@@ -57,15 +104,15 @@ classdef aplikasi_exported < matlab.apps.AppBase
             end
         end
 
-        function res = matchCharElement(app, K, T, templateStr)
+        function res = MatchCharElement(app, K, T, templateStr)
             res = "";
             for z = 1: size(K, 3)
-                i = app.matchTemplate(K(:,:,z), T);
+                i = app.MatchTemplate(K(:,:,z), T);
                 res = res + templateStr(i);
             end
         end
 
-        function K = getCharElement(~, I, maxnchar)
+        function K = GetCharElement(~, I, maxnchar)
             % segmentation
             J = imbinarize(I);
             J = imopen(J, strel('disk', 2));
@@ -152,7 +199,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
         % Code that executes after component creation
         function startupFcn(app)
             J = rgb2gray(imread("images/template.png"));
-            app.TemplateImg = app.getCharElement(J, 36);
+            app.TemplateImg = app.GetCharElement(J, 36);
         end
 
         % Button pushed function: LoadImageButton
@@ -161,9 +208,14 @@ classdef aplikasi_exported < matlab.apps.AppBase
             if (file ~= 0)
                 app.OriginalImage = imread(fullfile(path,file));
                 app.ImageOriginal.ImageSource = app.OriginalImage;
-                app.Process();
-                app.Detect();
+                app.Process(app.OriginalImage);
             end
+        end
+
+        % Value changed function: CropImageCheckBox, 
+        % FixImageRotationCheckBox
+        function FixImageRotationCheckBoxValueChanged(app, event)
+            app.Process(app.OriginalImage);
         end
     end
 
@@ -181,14 +233,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
             % Create GridLayout
             app.GridLayout = uigridlayout(app.UIFigure);
             app.GridLayout.ColumnWidth = {'1x'};
-            app.GridLayout.RowHeight = {'0.15x', '1.6x', '0.4x'};
-
-            % Create LoadImageButton
-            app.LoadImageButton = uibutton(app.GridLayout, 'push');
-            app.LoadImageButton.ButtonPushedFcn = createCallbackFcn(app, @LoadImageButtonPushed, true);
-            app.LoadImageButton.Layout.Row = 1;
-            app.LoadImageButton.Layout.Column = 1;
-            app.LoadImageButton.Text = 'Load Image';
+            app.GridLayout.RowHeight = {'0.5x', '1.6x', '0.4x'};
 
             % Create DetectedPlateNumberPanel
             app.DetectedPlateNumberPanel = uipanel(app.GridLayout);
@@ -201,17 +246,17 @@ classdef aplikasi_exported < matlab.apps.AppBase
             app.LabelPlateNumber.HorizontalAlignment = 'center';
             app.LabelPlateNumber.FontSize = 16;
             app.LabelPlateNumber.FontWeight = 'bold';
-            app.LabelPlateNumber.Position = [0 0 620 61];
+            app.LabelPlateNumber.Position = [1 -11 620 61];
             app.LabelPlateNumber.Text = '-';
 
-            % Create OriginalImageRotatedImageCroppedImageandFinalImagePanel
-            app.OriginalImageRotatedImageCroppedImageandFinalImagePanel = uipanel(app.GridLayout);
-            app.OriginalImageRotatedImageCroppedImageandFinalImagePanel.Title = 'Original Image, Rotated Image, Cropped Image, and Final Image';
-            app.OriginalImageRotatedImageCroppedImageandFinalImagePanel.Layout.Row = 2;
-            app.OriginalImageRotatedImageCroppedImageandFinalImagePanel.Layout.Column = 1;
+            % Create OriginalImageFilteredImageRotatedImageandCroppedImagePanel
+            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel = uipanel(app.GridLayout);
+            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Title = 'Original Image, Filtered Image, Rotated Image, and Cropped Image';
+            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Layout.Row = 2;
+            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Layout.Column = 1;
 
             % Create GridLayout2
-            app.GridLayout2 = uigridlayout(app.OriginalImageRotatedImageCroppedImageandFinalImagePanel);
+            app.GridLayout2 = uigridlayout(app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel);
 
             % Create ImageOriginal
             app.ImageOriginal = uiimage(app.GridLayout2);
@@ -232,6 +277,30 @@ classdef aplikasi_exported < matlab.apps.AppBase
             app.ImageCropped = uiimage(app.GridLayout2);
             app.ImageCropped.Layout.Row = 2;
             app.ImageCropped.Layout.Column = 2;
+
+            % Create InputPanel
+            app.InputPanel = uipanel(app.GridLayout);
+            app.InputPanel.Title = 'Input';
+            app.InputPanel.Layout.Row = 1;
+            app.InputPanel.Layout.Column = 1;
+
+            % Create LoadImageButton
+            app.LoadImageButton = uibutton(app.InputPanel, 'push');
+            app.LoadImageButton.ButtonPushedFcn = createCallbackFcn(app, @LoadImageButtonPushed, true);
+            app.LoadImageButton.Position = [11 36 599 22];
+            app.LoadImageButton.Text = 'Load Image';
+
+            % Create CropImageCheckBox
+            app.CropImageCheckBox = uicheckbox(app.InputPanel);
+            app.CropImageCheckBox.ValueChangedFcn = createCallbackFcn(app, @FixImageRotationCheckBoxValueChanged, true);
+            app.CropImageCheckBox.Text = 'Crop Image';
+            app.CropImageCheckBox.Position = [524 12 85 22];
+
+            % Create FixImageRotationCheckBox
+            app.FixImageRotationCheckBox = uicheckbox(app.InputPanel);
+            app.FixImageRotationCheckBox.ValueChangedFcn = createCallbackFcn(app, @FixImageRotationCheckBoxValueChanged, true);
+            app.FixImageRotationCheckBox.Text = 'Fix Image Rotation';
+            app.FixImageRotationCheckBox.Position = [400 12 123 22];
 
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
