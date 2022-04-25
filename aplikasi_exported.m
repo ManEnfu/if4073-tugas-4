@@ -25,7 +25,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
         RotatedImage
         CroppedImage
         TemplateImg
-        TemplateStr = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        TemplateStr = 'O123456789ABCDEFGHIJKLMN0PQRSTUVWXYZ';
     end
     
     methods (Access = private)
@@ -124,10 +124,14 @@ classdef aplikasi_exported < matlab.apps.AppBase
             result(result == 0) = 255;
         end
 
+        % Fungsi mecocokkan sebuah karakter dengan kumpulan karakter
+        % template
         function res = MatchTemplate(~, I, T)
             maxMatch = 0;
             res = 0;
             for z = 1: size(T, 3)
+                % Jika sebuah karakter cocok dengan sebuah karakter
+                % template, nilai bwarea(~xor(I,T(:,:,z))) maksimal 
                 m = bwarea(~xor(I, T(:,:,z)));
                 if m > maxMatch
                     maxMatch = m;
@@ -136,6 +140,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
             end
         end
 
+        % Fungsi mengenali nomor kendaraan dari kumpulan citra karakter
         function res = MatchCharElement(app, K, T, templateStr)
             res = "";
             for z = 1: size(K, 3)
@@ -145,13 +150,14 @@ classdef aplikasi_exported < matlab.apps.AppBase
         end
 
         function K = GetCharElement(~, I, maxnchar)
-            % segmentation
+            % Melakukan operasi pengambangan, penipisan, dilatasi, dan
+            % penapisan luas
             J = imbinarize(I);
             J = imopen(J, strel('disk', 2));
             J = imclearborder(J,8);
             J = bwareaopen(J, 100);
-            %imshow(J);
             
+            % Mencari segmen yang paling mungkin merupakan karakter
             L = J;
             maxsegment = 0;
             segmentsum = 0;
@@ -160,8 +166,6 @@ classdef aplikasi_exported < matlab.apps.AppBase
                 newL = bwareafilt(J,i);
                 newsegmentsum = bwarea(newL);
                 newsegmentarea = newsegmentsum-segmentsum;
-                %newsegmentarea
-                %maxsegment
                 if newsegmentarea < 0.3 * maxsegment
                     break;
                 end
@@ -173,8 +177,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
                 segmentsum = newsegmentsum;
             end
         
-            %imshow(L);
-            % crop row
+            % Melakukan cropping sehingga gambar hanya mengandung nomor
             rowBlocks = bwareafilt(max(L,[],2),1);
             toprow = 0; 
             botrow = 0;
@@ -191,7 +194,7 @@ classdef aplikasi_exported < matlab.apps.AppBase
             end
             L = L(toprow:botrow,:);
         
-            % crop individual character
+            % Membagi setiap karakter ke dalam citra terpisah
             colBlocks = max(L,[],1);
             leftcol = 0;
             % rightcol = 0;
@@ -217,6 +220,10 @@ classdef aplikasi_exported < matlab.apps.AppBase
                         botrow = size(rowBlocks);
                     end
                     C = C(toprow:botrow,:);
+                    % Citra di-resize menjadi 128x128 untuk kemudian
+                    % dicocokkan dengan template
+                    % Fungsi mengembalikan matriks 128x128xc, dengan c
+                    % merupakan banyaknya karakter yang dideteksi.
                     K = cat(3,K,imresize(C, [128 128]));
                     leftcol = 0;
                 end
