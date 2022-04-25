@@ -2,26 +2,26 @@ classdef aplikasi_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
-        UIFigure                  matlab.ui.Figure
-        GridLayout                matlab.ui.container.GridLayout
-        InputPanel                matlab.ui.container.Panel
-        FixImageRotationCheckBox  matlab.ui.control.CheckBox
-        CropImageCheckBox         matlab.ui.control.CheckBox
-        LoadImageButton           matlab.ui.control.Button
-        OriginalImageFilteredImageRotatedImageandCroppedImagePanel  matlab.ui.container.Panel
-        GridLayout2               matlab.ui.container.GridLayout
-        ImageCropped              matlab.ui.control.Image
-        ImageRotated              matlab.ui.control.Image
-        ImageFiltered             matlab.ui.control.Image
-        ImageOriginal             matlab.ui.control.Image
-        DetectedPlateNumberPanel  matlab.ui.container.Panel
-        LabelPlateNumber          matlab.ui.control.Label
+        UIFigure                        matlab.ui.Figure
+        GridLayout                      matlab.ui.container.GridLayout
+        InputPanel                      matlab.ui.container.Panel
+        FixImageRotationCheckBox        matlab.ui.control.CheckBox
+        CropImageCheckBox               matlab.ui.control.CheckBox
+        LoadImageButton                 matlab.ui.control.Button
+        OriginalandProcessedImagePanel  matlab.ui.container.Panel
+        GridLayout2                     matlab.ui.container.GridLayout
+        ImageCropped                    matlab.ui.control.Image
+        ImageRotated                    matlab.ui.control.Image
+        ImageGray                       matlab.ui.control.Image
+        ImageOriginal                   matlab.ui.control.Image
+        DetectedPlateNumberPanel        matlab.ui.container.Panel
+        LabelPlateNumber                matlab.ui.control.Label
     end
 
     
     properties (Access = private)
         OriginalImage
-        FilteredImage
+        GrayImage
         RotatedImage
         CroppedImage
         TemplateImg
@@ -29,28 +29,37 @@ classdef aplikasi_exported < matlab.apps.AppBase
     end
     
     methods (Access = private)
-
+        
+        % Fungsi utama
         function Process(app, aImage)
-            app.FilteredImage = rgb2gray(aImage);
-            app.ImageFiltered.ImageSource = cat(3, app.FilteredImage, app.FilteredImage, app.FilteredImage);
 
+            % Ubah gambar menjadi grayscale
+            app.GrayImage = rgb2gray(aImage);
+            app.ImageGray.ImageSource = cat(3, app.GrayImage, app.GrayImage, app.GrayImage);
+
+            % Jika mode perbaikan kemiringan dinyalakan, perbaiki kemiringan gambar 
             if app.FixImageRotationCheckBox.Value
-                app.RotatedImage = app.FixRotation(app.FilteredImage);
+                app.RotatedImage = app.FixRotation(app.GrayImage);
+                app.ImageRotated.ImageSource = cat(3, app.RotatedImage, app.RotatedImage, app.RotatedImage);
             else
-                app.RotatedImage = app.FilteredImage;
+                app.RotatedImage = app.GrayImage;
+                app.ImageRotated.ImageSource = '';
             end
-            app.ImageRotated.ImageSource = cat(3, app.RotatedImage, app.RotatedImage, app.RotatedImage);
 
+            % Jika mode cropping dinyalakan, lakukan cropping pada gambar
             if app.CropImageCheckBox.Value
                 app.CroppedImage = app.Crop(app.RotatedImage);
+                app.ImageCropped.ImageSource = cat(3, app.CroppedImage, app.CroppedImage, app.CroppedImage);
             else
                 app.CroppedImage = app.RotatedImage;
+                app.ImageCropped.ImageSource = '';
             end
-            app.ImageCropped.ImageSource = cat(3, app.CroppedImage, app.CroppedImage, app.CroppedImage);
 
+            % Deteksi nomor plat mobil pada gambar final
             app.LabelPlateNumber.Text = app.Detect(app.CroppedImage);
         end
         
+        % Fungsi deteksi nomor plat mobil
         function result = Detect(app, aImage)
             vPlateImage = app.GetCharElement(aImage, 9);
             vPlateNumber = app.MatchCharElement(vPlateImage, app.TemplateImg, app.TemplateStr);
@@ -58,36 +67,59 @@ classdef aplikasi_exported < matlab.apps.AppBase
             result = vPlateNumber;
         end
 
+        % Fungsi cropping untuk mengambil hanya plat nomor pada gambar
         function result = Crop(~, aImage)
-            vImage = edge(aImage, 'canny');
+
+            % Pertama, lakukan edge detection dengan metode prewitt
+            vImage = edge(aImage, 'prewitt');
             
-            vRegionProp = regionprops(vImage, 'BoundingBox', 'Area', 'Image');
-            vArea = vRegionProp.Area;
+            % Kemudian, gunakan regionprops untuk mencari daerah tertutup
+            % paling besar pada gambar yang memenuhi persyaratan rasio
+            % panjang bagi lebar di antara 2 dan 7. Angka 2 dan 7
+            % didapatkan dari uji coba.
+            vRegionProp = regionprops(vImage, 'BoundingBox', 'Area', 'MajorAxisLength', 'MinorAxisLength');
+            vArea = vRegionProp(1).Area;
+            vBoundingBox = vRegionProp(1).BoundingBox;
             vCount = numel(vRegionProp);
             vMaxArea = vArea;
-            vBoundingBox = vRegionProp.BoundingBox;
-            for i=1:vCount
-               if vMaxArea < vRegionProp(i).Area
-                   vMaxArea = vRegionProp(i).Area;
-                   vBoundingBox = vRegionProp(i).BoundingBox;
-               end
-            end   
+            for i=2:vCount
+                vRatio = vRegionProp(i).MajorAxisLength / vRegionProp(i).MinorAxisLength;
+                if vRatio > 2 && vRatio < 7 && vMaxArea < vRegionProp(i).Area
+                    vMaxArea = vRegionProp(i).Area;
+                    vBoundingBox = vRegionProp(i).BoundingBox;
+                end
+            end
             
+            % Terakhir, gunakan imcrop untuk memotong hanya daerah tersebut
+            % dari gambar
             result = imcrop(aImage, vBoundingBox);
         end
 
+        % Fungsi perbaikan kemiringan gambar
         function result = FixRotation(~, aImage)
+
+            % Pertama, lakukan edge detection dengan metode Canny, lalu
+            % sambungkan tepi-tepi yang terpisah dengan operasi thicken
             binaryImage = edge(aImage,'canny');
             binaryImage = bwmorph(binaryImage,'thicken');
+
+            % Lakukan proyeksi transformasi radon pada gambar sepanjang 180
+            % derajat, dari -90 hingga +89.
             theta = -90:89;
             [R,~] = radon(binaryImage,theta);
             [R1,~] = max(R); 
+
+            % Cari transformasi dengan kemiringan gambar terkecil
             theta_max = 90;
             while(theta_max > 50 || theta_max<-50)
                 [~,theta_max] = max(R1);
                 R1(theta_max) = 0;
                 theta_max = theta_max - 91;
             end
+
+            % Rotasi gambar asli sesuai transformasi dengan kemiringan
+            % terkecil dengan imrotate, lalu ubah pixel hitam pengisi
+            % menjadi putih
             result = imrotate(aImage,-theta_max);
             result(result == 0) = 255;
         end
@@ -249,24 +281,24 @@ classdef aplikasi_exported < matlab.apps.AppBase
             app.LabelPlateNumber.Position = [1 -11 620 61];
             app.LabelPlateNumber.Text = '-';
 
-            % Create OriginalImageFilteredImageRotatedImageandCroppedImagePanel
-            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel = uipanel(app.GridLayout);
-            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Title = 'Original Image, Filtered Image, Rotated Image, and Cropped Image';
-            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Layout.Row = 2;
-            app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel.Layout.Column = 1;
+            % Create OriginalandProcessedImagePanel
+            app.OriginalandProcessedImagePanel = uipanel(app.GridLayout);
+            app.OriginalandProcessedImagePanel.Title = 'Original and Processed Image';
+            app.OriginalandProcessedImagePanel.Layout.Row = 2;
+            app.OriginalandProcessedImagePanel.Layout.Column = 1;
 
             % Create GridLayout2
-            app.GridLayout2 = uigridlayout(app.OriginalImageFilteredImageRotatedImageandCroppedImagePanel);
+            app.GridLayout2 = uigridlayout(app.OriginalandProcessedImagePanel);
 
             % Create ImageOriginal
             app.ImageOriginal = uiimage(app.GridLayout2);
             app.ImageOriginal.Layout.Row = 1;
             app.ImageOriginal.Layout.Column = 1;
 
-            % Create ImageFiltered
-            app.ImageFiltered = uiimage(app.GridLayout2);
-            app.ImageFiltered.Layout.Row = 1;
-            app.ImageFiltered.Layout.Column = 2;
+            % Create ImageGray
+            app.ImageGray = uiimage(app.GridLayout2);
+            app.ImageGray.Layout.Row = 1;
+            app.ImageGray.Layout.Column = 2;
 
             % Create ImageRotated
             app.ImageRotated = uiimage(app.GridLayout2);
