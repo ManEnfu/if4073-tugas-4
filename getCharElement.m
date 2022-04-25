@@ -1,10 +1,14 @@
 function K = getCharElement(I, maxnchar)
-    % segmentation
+    % Pengambangan
     J = im2bw(I, graythresh(I));
-    J = imopen(J, strel('disk', 2));
+    % Lakukan operasi NOT jika tulisan gelap di latar terang
+    if bwarea(J) > size(J,1) * size(J,2) / 2
+        J = ~J;
+    end
+    J = imerode(J, strel('disk', 3));
+    imshow(J);
     J = imclearborder(J,8);
     J = bwareaopen(J, 100);
-    %imshow(J);
     
     L = J;
     maxsegment = 0;

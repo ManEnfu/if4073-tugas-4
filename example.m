@@ -1,4 +1,4 @@
-I = rgb2gray(imread("images/platnomor9.jpg"));
+I = rgb2gray(imread("images/platnomor7.jpg"));
 J = rgb2gray(imread("images/template.png"));
 
 K = getCharElement(I, 9);
